@@ -1,0 +1,57 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Tic Tac Toe — Create Room</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <main class="page">
+    <div class="card">
+      <h1 class="title">Tic Tac Toe — Create Room</h1>
+      <p class="lead">No signup. Deploy to Render / Railway / any host. Share the room URL with friend.</p>
+
+      <label class="field">
+        <div class="label">Your name</div>
+        <input id="name" placeholder="e.g., Meet" />
+      </label>
+
+      <div class="row">
+        <button id="createBtn" class="btn primary">Create Room</button>
+        <a href="/room.html" class="btn ghost">Open Room (join via URL)</a>
+      </div>
+
+      <div id="result" class="muted small"></div>
+      <hr />
+      <div class="small muted">When deployed, open this page to create a room. Share the generated link.</div>
+    </div>
+  </main>
+
+<script>
+document.getElementById('createBtn').addEventListener('click', async ()=> {
+  const name = (document.getElementById('name').value || 'Player').trim();
+  if (!name) return document.getElementById('result').textContent = 'Enter a name';
+  document.getElementById('createBtn').disabled = true;
+  document.getElementById('result').textContent = 'Creating room...';
+  try {
+    const res = await fetch('/create-room', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ name })
+    });
+    const j = await res.json();
+    if (!res.ok) throw new Error(j.error || 'Failed');
+    const url = `${location.origin}/room.html?room=${j.roomId}`;
+    document.getElementById('result').innerHTML = `Room ready — share this link: <input class="link" readonly value="${url}" /> <button id="copy" class="btn">Copy</button>`;
+    document.getElementById('copy').onclick = ()=> { navigator.clipboard.writeText(url); document.getElementById('result').textContent = 'Copied!'; };
+  } catch (e) {
+    console.error(e);
+    document.getElementById('result').textContent = 'Error creating room: ' + (e.message||'');
+  } finally {
+    document.getElementById('createBtn').disabled = false;
+  }
+});
+</script>
+</body>
+</html>
