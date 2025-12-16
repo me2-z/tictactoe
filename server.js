@@ -10,13 +10,14 @@ const app = express();
 app.use(express.json());
 app.use(cors());
 
-// Serve static frontend from /public
+// Serve static frontend from /public folder
 app.use(express.static(path.join(__dirname, 'public')));
 
-// In-memory rooms store
-// rooms[roomId] = { id, board, turn, status, players: [{id,name,symbol,connected}], createdAt }
+// In-memory rooms storage
+// rooms[roomId] = { id, board, turn, status, players: [{id,name,symbol,ws,connected}], createdAt }
 const rooms = {};
 
+// Create a new game room
 function createRoom(name) {
   const id = nanoid(7);
   const room = {
@@ -24,190 +25,384 @@ function createRoom(name) {
     board: Array(9).fill(null),
     turn: 'X',
     status: 'waiting',
-    players: [], // will push when websocket join
+    players: [],
     createdAt: Date.now()
   };
   rooms[id] = room;
+  console.log(`Created room ${id} for ${name}`);
   return room;
 }
 
+// Get room by ID
 function getRoom(id) {
   return rooms[id];
 }
 
-// API: create a room (returns roomId)
+// API: Create a new room
 app.post('/create-room', (req, res) => {
-  const name = (req.body && req.body.name) ? String(req.body.name).slice(0,48) : 'Player';
-  const room = createRoom(name);
-  return res.json({ roomId: room.id });
+  try {
+    const name = (req.body && req.body.name) 
+      ? String(req.body.name).slice(0, 48) 
+      : 'Player';
+    const room = createRoom(name);
+    return res.json({ roomId: room.id });
+  } catch (error) {
+    console.error('Error creating room:', error);
+    return res.status(500).json({ error: 'Failed to create room' });
+  }
 });
 
-// API: get room info (optional)
+// API: Get room information
 app.get('/room/:id', (req, res) => {
-  const r = getRoom(req.params.id);
-  if (!r) return res.status(404).json({ error: 'not found' });
-  const players = r.players.map(p => ({ id: p.id, name: p.name, symbol: p.symbol, connected: !!p.connected }));
-  return res.json({ id: r.id, board: r.board, turn: r.turn, status: r.status, players });
+  const room = getRoom(req.params.id);
+  if (!room) {
+    return res.status(404).json({ error: 'Room not found' });
+  }
+  
+  const players = room.players.map(p => ({
+    id: p.id,
+    name: p.name,
+    symbol: p.symbol,
+    connected: !!p.connected
+  }));
+  
+  return res.json({
+    id: room.id,
+    board: room.board,
+    turn: room.turn,
+    status: room.status,
+    players
+  });
 });
 
-// create http server and websocket server
+// Create HTTP server and WebSocket server
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server, path: '/ws' });
 
-// broadcast to room
-function broadcastToRoom(room, msg, exceptWs = null) {
-  room.players.forEach(p => {
+// Broadcast message to all players in a room
+function broadcastToRoom(room, message, exceptWs = null) {
+  const messageStr = JSON.stringify(message);
+  room.players.forEach(player => {
     try {
-      if (p.ws && p.ws.readyState === WebSocket.OPEN && p.ws !== exceptWs) {
-        p.ws.send(JSON.stringify(msg));
+      if (player.ws && 
+          player.ws.readyState === WebSocket.OPEN && 
+          player.ws !== exceptWs) {
+        player.ws.send(messageStr);
       }
-    } catch (e) {}
+    } catch (error) {
+      console.error('Error broadcasting to player:', error);
+    }
   });
 }
 
+// Check for winner
 function checkWinner(board) {
-  const lines = [
-    [0,1,2],[3,4,5],[6,7,8],
-    [0,3,6],[1,4,7],[2,5,8],
-    [0,4,8],[2,4,6]
+  const winningLines = [
+    [0, 1, 2], [3, 4, 5], [6, 7, 8], // Rows
+    [0, 3, 6], [1, 4, 7], [2, 5, 8], // Columns
+    [0, 4, 8], [2, 4, 6]             // Diagonals
   ];
-  for (const line of lines) {
-    const [a,b,c] = line;
-    if (board[a] && board[a] === board[b] && board[a] === board[c]) return { winner: board[a], line };
+
+  for (const line of winningLines) {
+    const [a, b, c] = line;
+    if (board[a] && board[a] === board[b] && board[a] === board[c]) {
+      return { winner: board[a], line };
+    }
   }
-  if (board.every(Boolean)) return { winner: 'draw', line: null };
+
+  // Check for draw
+  if (board.every(cell => cell !== null)) {
+    return { winner: 'draw', line: null };
+  }
+
   return { winner: null, line: null };
 }
 
+// WebSocket connection handler
 wss.on('connection', (ws, req) => {
+  console.log('New WebSocket connection');
   ws.isAlive = true;
-  ws.on('pong', () => ws.isAlive = true);
+  
+  ws.on('pong', () => {
+    ws.isAlive = true;
+  });
 
-  ws.on('message', (raw) => {
-    let msg;
-    try { msg = JSON.parse(raw.toString()); } catch (e) { return; }
-    const { type } = msg;
+  ws.on('message', (rawMessage) => {
+    let message;
+    try {
+      message = JSON.parse(rawMessage.toString());
+    } catch (error) {
+      console.error('Failed to parse message:', error);
+      return;
+    }
 
+    const { type } = message;
+
+    // Handle JOIN request
     if (type === 'join') {
-      // { type:'join', roomId, name }
-      const { roomId, name } = msg;
-      if (!roomId) return ws.send(JSON.stringify({ type:'error', message:'roomId required' }));
-      let room = getRoom(roomId);
-      if (!room) {
-        // optional: create on demand
-        room = createRoom(name || 'Player');
+      const { roomId, name } = message;
+      
+      if (!roomId) {
+        return ws.send(JSON.stringify({ 
+          type: 'error', 
+          message: 'Room ID required' 
+        }));
       }
 
-      // assign symbol X or O or spectator
-      const taken = new Set(room.players.map(p => p.symbol));
-      let symbol = null;
-      if (!taken.has('X')) symbol = 'X';
-      else if (!taken.has('O')) symbol = 'O';
-      else symbol = 'spectator';
+      let room = getRoom(roomId);
+      
+      // Create room on demand if it doesn't exist
+      if (!room) {
+        room = createRoom(name || 'Player');
+        console.log(`Created room on demand: ${room.id}`);
+      }
 
-      const pid = nanoid(9);
-      const player = { id: pid, name: name || 'Player', symbol, ws, connected: true };
+      // Assign symbol (X, O, or spectator)
+      const takenSymbols = new Set(room.players.map(p => p.symbol));
+      let symbol = null;
+      
+      if (!takenSymbols.has('X')) {
+        symbol = 'X';
+      } else if (!takenSymbols.has('O')) {
+        symbol = 'O';
+      } else {
+        symbol = 'spectator';
+      }
+
+      // Create player
+      const playerId = nanoid(9);
+      const player = {
+        id: playerId,
+        name: name || 'Player',
+        symbol,
+        ws,
+        connected: true
+      };
+      
       room.players.push(player);
 
-      // update status
-      const active = room.players.filter(p => p.symbol === 'X' || p.symbol === 'O');
-      room.status = (active.length === 2) ? 'playing' : 'waiting';
+      // Update room status
+      const activePlayers = room.players.filter(
+        p => p.symbol === 'X' || p.symbol === 'O'
+      );
+      room.status = (activePlayers.length === 2) ? 'playing' : 'waiting';
 
-      // send joined ack to this client
+      console.log(`Player ${player.name} joined room ${room.id} as ${symbol}`);
+
+      // Send joined confirmation to this player
       ws.send(JSON.stringify({
         type: 'joined',
         roomId: room.id,
-        playerId: pid,
+        playerId,
         symbol,
         board: room.board,
         turn: room.turn,
         status: room.status,
-        players: room.players.map(p => ({ id: p.id, name: p.name, symbol: p.symbol }))
+        players: room.players.map(p => ({
+          id: p.id,
+          name: p.name,
+          symbol: p.symbol
+        }))
       }));
 
-      // broadcast new player to others
-      broadcastToRoom(room, { type:'player-joined', id: pid, name: player.name, symbol: player.symbol }, ws);
+      // Broadcast to other players
+      broadcastToRoom(room, {
+        type: 'player-joined',
+        id: playerId,
+        name: player.name,
+        symbol: player.symbol
+      }, ws);
+
       return;
     }
 
-    // other actions require the ws to be associated with a room/player
-    // find player/room
+    // Find player and room for other message types
     const playerEntry = (() => {
-      for (const r of Object.values(rooms)) {
-        const p = r.players.find(px => px.ws === ws);
-        if (p) return { room: r, player: p };
+      for (const room of Object.values(rooms)) {
+        const player = room.players.find(p => p.ws === ws);
+        if (player) return { room, player };
       }
       return null;
     })();
+
     if (!playerEntry) {
-      return ws.send(JSON.stringify({ type:'error', message:'not joined' }));
+      return ws.send(JSON.stringify({
+        type: 'error',
+        message: 'Not joined to any room'
+      }));
     }
+
     const { room, player } = playerEntry;
 
+    // Handle MOVE request
     if (type === 'move') {
-      // { index }
-      const { index } = msg;
-      if (typeof index !== 'number' || index < 0 || index > 8) return ws.send(JSON.stringify({ type:'error', message:'bad index' }));
-      if (room.status !== 'playing' && room.status !== 'waiting') return ws.send(JSON.stringify({ type:'error', message:'game not active' }));
-      if (room.turn !== player.symbol) return ws.send(JSON.stringify({ type:'error', message:'not your turn' }));
-      if (room.board[index]) return ws.send(JSON.stringify({ type:'error', message:'cell taken' }));
+      const { index } = message;
 
+      // Validation
+      if (typeof index !== 'number' || index < 0 || index > 8) {
+        return ws.send(JSON.stringify({
+          type: 'error',
+          message: 'Invalid cell index'
+        }));
+      }
+
+      if (room.status !== 'playing' && room.status !== 'waiting') {
+        return ws.send(JSON.stringify({
+          type: 'error',
+          message: 'Game not active'
+        }));
+      }
+
+      if (room.turn !== player.symbol) {
+        return ws.send(JSON.stringify({
+          type: 'error',
+          message: 'Not your turn'
+        }));
+      }
+
+      if (room.board[index]) {
+        return ws.send(JSON.stringify({
+          type: 'error',
+          message: 'Cell already taken'
+        }));
+      }
+
+      // Make the move
       room.board[index] = player.symbol;
       room.turn = (player.symbol === 'X') ? 'O' : 'X';
-      const w = checkWinner(room.board);
-      if (w.winner) room.status = 'finished';
-      else if (room.board.every(Boolean)) room.status = 'finished';
-      else room.status = 'playing';
 
-      broadcastToRoom(room, { type:'update', board: room.board, turn: room.turn, status: room.status, winner: w.winner || null, winLine: w.line || null });
+      // Check for winner
+      const result = checkWinner(room.board);
+      
+      if (result.winner) {
+        room.status = 'finished';
+      } else {
+        room.status = 'playing';
+      }
+
+      console.log(`Move made in room ${room.id}: ${player.symbol} at position ${index}`);
+
+      // Broadcast update to ALL players including the one who made the move
+      const updateMessage = {
+        type: 'update',
+        board: room.board,
+        turn: room.turn,
+        status: room.status,
+        winner: result.winner || null,
+        winLine: result.line || null
+      };
+
+      // Send to all players (not excluding the sender)
+      room.players.forEach(p => {
+        try {
+          if (p.ws && p.ws.readyState === WebSocket.OPEN) {
+            p.ws.send(JSON.stringify(updateMessage));
+          }
+        } catch (error) {
+          console.error('Error sending update:', error);
+        }
+      });
+
       return;
     }
 
+    // Handle RESET request
     if (type === 'reset') {
       room.board = Array(9).fill(null);
       room.turn = 'X';
       room.status = 'playing';
-      broadcastToRoom(room, { type:'update', board: room.board, turn: room.turn, status: room.status, winner: null });
+
+      console.log(`Game reset in room ${room.id}`);
+
+      // Broadcast reset to all players
+      const resetMessage = {
+        type: 'update',
+        board: room.board,
+        turn: room.turn,
+        status: room.status,
+        winner: null,
+        winLine: null
+      };
+
+      room.players.forEach(p => {
+        try {
+          if (p.ws && p.ws.readyState === WebSocket.OPEN) {
+            p.ws.send(JSON.stringify(resetMessage));
+          }
+        } catch (error) {
+          console.error('Error sending reset:', error);
+        }
+      });
+
       return;
     }
 
-    // unknown type
-    return;
+    // Unknown message type
+    console.log('Unknown message type:', type);
   });
 
+  // Handle WebSocket close
   ws.on('close', () => {
-    // remove player's ws & mark disconnected
-    for (const r of Object.values(rooms)) {
-      const idx = r.players.findIndex(p => p.ws === ws);
-      if (idx !== -1) {
-        const left = r.players.splice(idx,1)[0];
-        // broadcast leave
-        broadcastToRoom(r, { type:'player-left', id: left.id, name: left.name, symbol: left.symbol });
-        // cleanup empty room after a minute
-        if (r.players.length === 0) {
+    console.log('WebSocket connection closed');
+    
+    // Find and remove player
+    for (const room of Object.values(rooms)) {
+      const playerIndex = room.players.findIndex(p => p.ws === ws);
+      
+      if (playerIndex !== -1) {
+        const leftPlayer = room.players.splice(playerIndex, 1)[0];
+        
+        console.log(`Player ${leftPlayer.name} left room ${room.id}`);
+
+        // Broadcast player left
+        broadcastToRoom(room, {
+          type: 'player-left',
+          id: leftPlayer.id,
+          name: leftPlayer.name,
+          symbol: leftPlayer.symbol
+        });
+
+        // Clean up empty rooms after 1 minute
+        if (room.players.length === 0) {
           setTimeout(() => {
-            if (rooms[r.id] && rooms[r.id].players.length === 0) delete rooms[r.id];
-          }, 60*1000);
+            if (rooms[room.id] && rooms[room.id].players.length === 0) {
+              delete rooms[room.id];
+              console.log(`Deleted empty room ${room.id}`);
+            }
+          }, 60 * 1000);
         } else {
-          // update status
-          const act = r.players.filter(p => p.symbol === 'X' || p.symbol === 'O');
-          r.status = (act.length === 2) ? 'playing' : 'waiting';
+          // Update room status
+          const activePlayers = room.players.filter(
+            p => p.symbol === 'X' || p.symbol === 'O'
+          );
+          room.status = (activePlayers.length === 2) ? 'playing' : 'waiting';
         }
+        
         break;
       }
     }
   });
 
+  // Handle WebSocket errors
+  ws.on('error', (error) => {
+    console.error('WebSocket error:', error);
+  });
 });
 
-// health ping
+// Health check ping every 30 seconds
 setInterval(() => {
   wss.clients.forEach(ws => {
-    if (ws.isAlive === false) return ws.terminate();
+    if (ws.isAlive === false) {
+      return ws.terminate();
+    }
     ws.isAlive = false;
     ws.ping(() => {});
   });
 }, 30000);
 
+// Start server
 const PORT = process.env.PORT || 7777;
-server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+server.listen(PORT, () => {
+  console.log(`🎮 Tic Tac Toe server running on port ${PORT}`);
+  console.log(`📡 WebSocket endpoint: ws://localhost:${PORT}/ws`);
+});
