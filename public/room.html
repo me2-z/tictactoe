@@ -1,9 +1,9 @@
-<!doctype html>
-<html>
+<!DOCTYPE html>
+<html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <title>Tic Tac Toe — Room</title>
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Tic Tac Toe — Game Room</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
@@ -11,9 +11,18 @@
     <div class="card large">
       <div class="topbar">
         <div>
-          <input id="name" placeholder="Your name (e.g., Meet)" />
-          <button id="joinBtn" class="btn primary">Join Room</button>
-          <button id="resetBtn" class="btn ghost">Reset</button>
+          <input 
+            id="name" 
+            type="text"
+            placeholder="Your name (e.g., Meet)" 
+            autocomplete="off"
+          />
+          <button id="joinBtn" class="btn primary">
+            Join Room
+          </button>
+          <button id="resetBtn" class="btn ghost">
+            🔄 Reset Game
+          </button>
         </div>
         <div class="meta">
           <div id="roomLabel">Room: —</div>
@@ -27,14 +36,23 @@
       </div>
 
       <div class="info-row">
-        <div>Player: <strong id="meLabel">—</strong></div>
-        <div>You are: <strong id="symbolLabel">—</strong></div>
-        <div>Turn: <strong id="turnLabel">—</strong></div>
+        <div>
+          <span style="color: #64748b;">Player:</span> 
+          <strong id="meLabel">—</strong>
+        </div>
+        <div>
+          <span style="color: #64748b;">You are:</span> 
+          <strong id="symbolLabel">—</strong>
+        </div>
+        <div>
+          <span style="color: #64748b;">Turn:</span> 
+          <strong id="turnLabel">—</strong>
+        </div>
         <div id="msg" class="muted small"></div>
       </div>
     </div>
   </main>
 
-<script src="/script.js"></script>
+  <script src="/script.js"></script>
 </body>
 </html>
