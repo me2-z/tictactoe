@@ -3,83 +3,94 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Tic Tac Toe — Create Room</title>
+  <title>Tic Tac Toe — Instant Play</title>
   <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
 <body>
-  <main class="page">
-    <div class="card">
-      <h1 class="title">🎮 Tic Tac Toe — Create Room</h1>
-      <p class="lead">
-        No signup required. Deploy to Render, Railway, or any hosting platform. 
-        Create a room and share the link with your friend to play!
-      </p>
+  <div class="container">
+    <div class="game-title">
+      <i class="fas fa-gamepad"></i>
+      <h1>TIC TAC TOE</h1>
+      <p class="tagline">Instant Multiplayer • No Signup • Free Forever</p>
+    </div>
 
-      <label class="field">
-        <div class="label">Your Name</div>
-        <input 
-          id="name" 
-          type="text"
-          placeholder="e.g., Meet" 
-          autocomplete="off"
-        />
-      </label>
-
-      <div class="row">
-        <button id="createBtn" class="btn primary">
-          Create Room
-        </button>
-        <a href="/room.html" class="btn ghost">
-          Join Existing Room
-        </a>
+    <div class="main-card">
+      <div class="card-header">
+        <i class="fas fa-plus-circle"></i>
+        <h2>Create New Game</h2>
       </div>
+      
+      <div class="card-body">
+        <p class="instruction">
+          Click below to create a game room instantly. Share the link with a friend to play!
+        </p>
+        
+        <button id="createBtn" class="create-btn">
+          <i class="fas fa-bolt"></i>
+          CREATE ROOM
+        </button>
+        
+        <div class="features">
+          <div class="feature">
+            <i class="fas fa-user-friends"></i>
+            <span>2 Players</span>
+          </div>
+          <div class="feature">
+            <i class="fas fa-rocket"></i>
+            <span>Instant Start</span>
+          </div>
+          <div class="feature">
+            <i class="fas fa-link"></i>
+            <span>Share Link</span>
+          </div>
+        </div>
+      </div>
+      
+      <div id="result" class="result-container"></div>
+    </div>
 
-      <div id="result" class="muted small"></div>
-      
-      <hr />
-      
-      <div class="small muted">
-        💡 Tip: When deployed, open this page to create a new game room. 
-        Share the generated link with a friend to start playing!
+    <div class="how-to-play">
+      <h3><i class="fas fa-info-circle"></i> How to Play</h3>
+      <div class="steps">
+        <div class="step">
+          <div class="step-number">1</div>
+          <p>Create a room (you're Player X)</p>
+        </div>
+        <div class="step">
+          <div class="step-number">2</div>
+          <p>Share the link with a friend</p>
+        </div>
+        <div class="step">
+          <div class="step-number">3</div>
+          <p>Friend joins (becomes Player O)</p>
+        </div>
+        <div class="step">
+          <div class="step-number">4</div>
+          <p>Game starts automatically!</p>
+        </div>
       </div>
     </div>
-  </main>
+
+    <div class="footer">
+      <p>Made with <i class="fas fa-heart"></i> by Meet • No names required • Just pure gaming</p>
+    </div>
+  </div>
 
   <script>
-    const nameInput = document.getElementById('name');
     const createBtn = document.getElementById('createBtn');
     const resultDiv = document.getElementById('result');
 
-    // Focus name input on load
-    nameInput.focus();
-
-    // Allow Enter key to create room
-    nameInput.addEventListener('keypress', (e) => {
-      if (e.key === 'Enter') {
-        createBtn.click();
-      }
-    });
-
     createBtn.addEventListener('click', async () => {
-      const name = (nameInput.value || 'Player').trim();
-      
-      if (!name) {
-        resultDiv.textContent = 'Please enter your name';
-        resultDiv.style.color = '#ef4444';
-        return;
-      }
-
-      // Disable button and show loading state
+      // Show loading state
+      createBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> CREATING...';
       createBtn.disabled = true;
-      createBtn.textContent = 'Creating...';
-      resultDiv.textContent = 'Creating your game room...';
-      resultDiv.style.color = '#64748b';
-
+      
       try {
         const response = await fetch('/create-room', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name })
+          body: JSON.stringify({ name: 'Player' })
         });
 
         const data = await response.json();
@@ -90,61 +101,93 @@
 
         // Generate shareable URL
         const roomUrl = `${location.origin}/room.html?room=${data.roomId}`;
+        const shortId = data.roomId;
         
         resultDiv.innerHTML = `
-          <div style="margin-top: 20px;">
-            <strong style="color: #10b981;">✅ Room created successfully!</strong>
-            <div style="margin-top: 12px;">
-              <label style="font-weight: 600; display: block; margin-bottom: 8px;">
-                Share this link with your friend:
-              </label>
+          <div class="success-card">
+            <div class="success-icon">
+              <i class="fas fa-check-circle"></i>
+            </div>
+            <h3>Room Created!</h3>
+            <p>You're <strong>Player X</strong>. Share this link with your friend:</p>
+            
+            <div class="room-info">
+              <div class="room-id">
+                <i class="fas fa-hashtag"></i>
+                <span>Room ID: <strong>${shortId}</strong></span>
+              </div>
+              <button id="copyIdBtn" class="copy-btn">
+                <i class="far fa-copy"></i> Copy ID
+              </button>
+            </div>
+            
+            <div class="share-link-container">
               <input 
-                class="link" 
+                type="text" 
                 readonly 
                 value="${roomUrl}" 
                 id="roomLink"
-                onclick="this.select()"
+                class="share-link"
               />
-              <button id="copyBtn" class="btn primary" style="margin-top: 10px;">
-                📋 Copy Link
+              <button id="copyLinkBtn" class="copy-btn primary">
+                <i class="fas fa-link"></i> Copy Link
               </button>
-              <button id="goToRoomBtn" class="btn ghost" style="margin-top: 10px;">
-                🎮 Go to Room
+            </div>
+            
+            <div class="action-buttons">
+              <a href="${roomUrl}" class="action-btn">
+                <i class="fas fa-play"></i> Go to Game
+              </a>
+              <button id="whatsappBtn" class="action-btn secondary">
+                <i class="fab fa-whatsapp"></i> Share on WhatsApp
               </button>
+            </div>
+            
+            <div class="auto-join-note">
+              <i class="fas fa-lightbulb"></i>
+              <p>Your friend will join automatically when they open the link!</p>
             </div>
           </div>
         `;
 
-        // Copy button handler
-        document.getElementById('copyBtn').onclick = async () => {
-          const linkInput = document.getElementById('roomLink');
-          linkInput.select();
-          
-          try {
-            await navigator.clipboard.writeText(roomUrl);
-            document.getElementById('copyBtn').textContent = '✅ Copied!';
-            setTimeout(() => {
-              document.getElementById('copyBtn').textContent = '📋 Copy Link';
-            }, 2000);
-          } catch (err) {
-            // Fallback for older browsers
-            document.execCommand('copy');
-            document.getElementById('copyBtn').textContent = '✅ Copied!';
-          }
+        // Copy ID button
+        document.getElementById('copyIdBtn').onclick = () => {
+          navigator.clipboard.writeText(shortId);
+          const btn = document.getElementById('copyIdBtn');
+          btn.innerHTML = '<i class="fas fa-check"></i> Copied!';
+          setTimeout(() => {
+            btn.innerHTML = '<i class="far fa-copy"></i> Copy ID';
+          }, 2000);
         };
 
-        // Go to room button handler
-        document.getElementById('goToRoomBtn').onclick = () => {
-          window.location.href = roomUrl;
+        // Copy Link button
+        document.getElementById('copyLinkBtn').onclick = () => {
+          navigator.clipboard.writeText(roomUrl);
+          const btn = document.getElementById('copyLinkBtn');
+          btn.innerHTML = '<i class="fas fa-check"></i> Copied!';
+          setTimeout(() => {
+            btn.innerHTML = '<i class="fas fa-link"></i> Copy Link';
+          }, 2000);
+        };
+
+        // WhatsApp button
+        document.getElementById('whatsappBtn').onclick = () => {
+          const text = `Let's play Tic Tac Toe! Join me: ${roomUrl}`;
+          const url = `https://wa.me/?text=${encodeURIComponent(text)}`;
+          window.open(url, '_blank');
         };
 
       } catch (error) {
         console.error('Error creating room:', error);
-        resultDiv.textContent = 'Error creating room: ' + (error.message || 'Unknown error');
-        resultDiv.style.color = '#ef4444';
+        resultDiv.innerHTML = `
+          <div class="error-card">
+            <i class="fas fa-exclamation-circle"></i>
+            <p>Error creating room. Please try again.</p>
+          </div>
+        `;
       } finally {
+        createBtn.innerHTML = '<i class="fas fa-bolt"></i> CREATE ROOM';
         createBtn.disabled = false;
-        createBtn.textContent = 'Create Room';
       }
     });
   </script>
