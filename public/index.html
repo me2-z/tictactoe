@@ -1,57 +1,152 @@
-<!doctype html>
-<html>
+<!DOCTYPE html>
+<html lang="en">
 <head>
-  <meta charset="utf-8" />
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Tic Tac Toe — Create Room</title>
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
   <main class="page">
     <div class="card">
-      <h1 class="title">Tic Tac Toe — Create Room</h1>
-      <p class="lead">No signup. Deploy to Render / Railway / any host. Share the room URL with friend.</p>
+      <h1 class="title">🎮 Tic Tac Toe — Create Room</h1>
+      <p class="lead">
+        No signup required. Deploy to Render, Railway, or any hosting platform. 
+        Create a room and share the link with your friend to play!
+      </p>
 
       <label class="field">
-        <div class="label">Your name</div>
-        <input id="name" placeholder="e.g., Meet" />
+        <div class="label">Your Name</div>
+        <input 
+          id="name" 
+          type="text"
+          placeholder="e.g., Meet" 
+          autocomplete="off"
+        />
       </label>
 
       <div class="row">
-        <button id="createBtn" class="btn primary">Create Room</button>
-        <a href="/room.html" class="btn ghost">Open Room (join via URL)</a>
+        <button id="createBtn" class="btn primary">
+          Create Room
+        </button>
+        <a href="/room.html" class="btn ghost">
+          Join Existing Room
+        </a>
       </div>
 
       <div id="result" class="muted small"></div>
+      
       <hr />
-      <div class="small muted">When deployed, open this page to create a room. Share the generated link.</div>
+      
+      <div class="small muted">
+        💡 Tip: When deployed, open this page to create a new game room. 
+        Share the generated link with a friend to start playing!
+      </div>
     </div>
   </main>
 
-<script>
-document.getElementById('createBtn').addEventListener('click', async ()=> {
-  const name = (document.getElementById('name').value || 'Player').trim();
-  if (!name) return document.getElementById('result').textContent = 'Enter a name';
-  document.getElementById('createBtn').disabled = true;
-  document.getElementById('result').textContent = 'Creating room...';
-  try {
-    const res = await fetch('/create-room', {
-      method: 'POST',
-      headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({ name })
+  <script>
+    const nameInput = document.getElementById('name');
+    const createBtn = document.getElementById('createBtn');
+    const resultDiv = document.getElementById('result');
+
+    // Focus name input on load
+    nameInput.focus();
+
+    // Allow Enter key to create room
+    nameInput.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') {
+        createBtn.click();
+      }
     });
-    const j = await res.json();
-    if (!res.ok) throw new Error(j.error || 'Failed');
-    const url = `${location.origin}/room.html?room=${j.roomId}`;
-    document.getElementById('result').innerHTML = `Room ready — share this link: <input class="link" readonly value="${url}" /> <button id="copy" class="btn">Copy</button>`;
-    document.getElementById('copy').onclick = ()=> { navigator.clipboard.writeText(url); document.getElementById('result').textContent = 'Copied!'; };
-  } catch (e) {
-    console.error(e);
-    document.getElementById('result').textContent = 'Error creating room: ' + (e.message||'');
-  } finally {
-    document.getElementById('createBtn').disabled = false;
-  }
-});
-</script>
+
+    createBtn.addEventListener('click', async () => {
+      const name = (nameInput.value || 'Player').trim();
+      
+      if (!name) {
+        resultDiv.textContent = 'Please enter your name';
+        resultDiv.style.color = '#ef4444';
+        return;
+      }
+
+      // Disable button and show loading state
+      createBtn.disabled = true;
+      createBtn.textContent = 'Creating...';
+      resultDiv.textContent = 'Creating your game room...';
+      resultDiv.style.color = '#64748b';
+
+      try {
+        const response = await fetch('/create-room', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name })
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.error || 'Failed to create room');
+        }
+
+        // Generate shareable URL
+        const roomUrl = `${location.origin}/room.html?room=${data.roomId}`;
+        
+        resultDiv.innerHTML = `
+          <div style="margin-top: 20px;">
+            <strong style="color: #10b981;">✅ Room created successfully!</strong>
+            <div style="margin-top: 12px;">
+              <label style="font-weight: 600; display: block; margin-bottom: 8px;">
+                Share this link with your friend:
+              </label>
+              <input 
+                class="link" 
+                readonly 
+                value="${roomUrl}" 
+                id="roomLink"
+                onclick="this.select()"
+              />
+              <button id="copyBtn" class="btn primary" style="margin-top: 10px;">
+                📋 Copy Link
+              </button>
+              <button id="goToRoomBtn" class="btn ghost" style="margin-top: 10px;">
+                🎮 Go to Room
+              </button>
+            </div>
+          </div>
+        `;
+
+        // Copy button handler
+        document.getElementById('copyBtn').onclick = async () => {
+          const linkInput = document.getElementById('roomLink');
+          linkInput.select();
+          
+          try {
+            await navigator.clipboard.writeText(roomUrl);
+            document.getElementById('copyBtn').textContent = '✅ Copied!';
+            setTimeout(() => {
+              document.getElementById('copyBtn').textContent = '📋 Copy Link';
+            }, 2000);
+          } catch (err) {
+            // Fallback for older browsers
+            document.execCommand('copy');
+            document.getElementById('copyBtn').textContent = '✅ Copied!';
+          }
+        };
+
+        // Go to room button handler
+        document.getElementById('goToRoomBtn').onclick = () => {
+          window.location.href = roomUrl;
+        };
+
+      } catch (error) {
+        console.error('Error creating room:', error);
+        resultDiv.textContent = 'Error creating room: ' + (error.message || 'Unknown error');
+        resultDiv.style.color = '#ef4444';
+      } finally {
+        createBtn.disabled = false;
+        createBtn.textContent = 'Create Room';
+      }
+    });
+  </script>
 </body>
 </html>
