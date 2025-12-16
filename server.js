@@ -1,4 +1,4 @@
-// server.js
+// server.js - Updated for auto-restart and scores
 const express = require('express');
 const http = require('http');
 const WebSocket = require('ws');
@@ -14,22 +14,23 @@ app.use(cors());
 app.use(express.static(path.join(__dirname, 'public')));
 
 // In-memory rooms storage
-// rooms[roomId] = { id, board, turn, status, players: [{id,name,symbol,ws,connected}], createdAt }
+// rooms[roomId] = { id, board, turn, status, players: [{id,name,symbol,ws,connected}], scores: {X, O, draw}, createdAt }
 const rooms = {};
 
 // Create a new game room
-function createRoom(name) {
-  const id = nanoid(7);
+function createRoom() {
+  const id = nanoid(6); // Shorter ID
   const room = {
     id,
     board: Array(9).fill(null),
     turn: 'X',
     status: 'waiting',
     players: [],
+    scores: { X: 0, O: 0, draw: 0 },
     createdAt: Date.now()
   };
   rooms[id] = room;
-  console.log(`Created room ${id} for ${name}`);
+  console.log(`Created room ${id}`);
   return room;
 }
 
@@ -41,10 +42,7 @@ function getRoom(id) {
 // API: Create a new room
 app.post('/create-room', (req, res) => {
   try {
-    const name = (req.body && req.body.name) 
-      ? String(req.body.name).slice(0, 48) 
-      : 'Player';
-    const room = createRoom(name);
+    const room = createRoom();
     return res.json({ roomId: room.id });
   } catch (error) {
     console.error('Error creating room:', error);
@@ -71,7 +69,8 @@ app.get('/room/:id', (req, res) => {
     board: room.board,
     turn: room.turn,
     status: room.status,
-    players
+    players,
+    scores: room.scores
   });
 });
 
@@ -153,7 +152,7 @@ wss.on('connection', (ws, req) => {
       
       // Create room on demand if it doesn't exist
       if (!room) {
-        room = createRoom(name || 'Player');
+        room = createRoom();
         console.log(`Created room on demand: ${room.id}`);
       }
 
@@ -169,11 +168,14 @@ wss.on('connection', (ws, req) => {
         symbol = 'spectator';
       }
 
+      // Generate random name if not provided
+      const playerName = name || `Player${Math.floor(Math.random() * 1000)}`;
+      
       // Create player
-      const playerId = nanoid(9);
+      const playerId = nanoid(8);
       const player = {
         id: playerId,
-        name: name || 'Player',
+        name: playerName,
         symbol,
         ws,
         connected: true
@@ -202,15 +204,18 @@ wss.on('connection', (ws, req) => {
           id: p.id,
           name: p.name,
           symbol: p.symbol
-        }))
+        })),
+        scores: room.scores
       }));
 
       // Broadcast to other players
       broadcastToRoom(room, {
         type: 'player-joined',
-        id: playerId,
-        name: player.name,
-        symbol: player.symbol
+        players: room.players.map(p => ({
+          id: p.id,
+          name: p.name,
+          symbol: p.symbol
+        }))
       }, ws);
 
       return;
@@ -246,7 +251,7 @@ wss.on('connection', (ws, req) => {
         }));
       }
 
-      if (room.status !== 'playing' && room.status !== 'waiting') {
+      if (room.status !== 'playing') {
         return ws.send(JSON.stringify({
           type: 'error',
           message: 'Game not active'
@@ -276,6 +281,12 @@ wss.on('connection', (ws, req) => {
       
       if (result.winner) {
         room.status = 'finished';
+        // Update scores
+        if (result.winner === 'draw') {
+          room.scores.draw++;
+        } else {
+          room.scores[result.winner]++;
+        }
       } else {
         room.status = 'playing';
       }
@@ -289,7 +300,8 @@ wss.on('connection', (ws, req) => {
         turn: room.turn,
         status: room.status,
         winner: result.winner || null,
-        winLine: result.line || null
+        winLine: result.line || null,
+        scores: room.scores
       };
 
       // Send to all players (not excluding the sender)
@@ -321,7 +333,8 @@ wss.on('connection', (ws, req) => {
         turn: room.turn,
         status: room.status,
         winner: null,
-        winLine: null
+        winLine: null,
+        scores: room.scores
       };
 
       room.players.forEach(p => {
@@ -357,9 +370,11 @@ wss.on('connection', (ws, req) => {
         // Broadcast player left
         broadcastToRoom(room, {
           type: 'player-left',
-          id: leftPlayer.id,
-          name: leftPlayer.name,
-          symbol: leftPlayer.symbol
+          players: room.players.map(p => ({
+            id: p.id,
+            name: p.name,
+            symbol: p.symbol
+          }))
         });
 
         // Clean up empty rooms after 1 minute
