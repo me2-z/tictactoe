@@ -5,54 +5,338 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Tic Tac Toe — Game Room</title>
   <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
 <body>
-  <main class="page">
-    <div class="card large">
-      <div class="topbar">
-        <div>
-          <input 
-            id="name" 
-            type="text"
-            placeholder="Your name (e.g., Meet)" 
-            autocomplete="off"
-          />
-          <button id="joinBtn" class="btn primary">
-            Join Room
-          </button>
-          <button id="resetBtn" class="btn ghost">
-            🔄 Reset Game
-          </button>
+  <div class="connecting-overlay" id="connectingOverlay">
+    <div class="connecting-spinner"></div>
+    <div class="connecting-text">Connecting to Game...</div>
+    <div class="connecting-details" id="connectingDetails"></div>
+  </div>
+
+  <div class="container room-container" id="gameContainer" style="display: none;">
+    <div class="room-header">
+      <div class="room-info-badge">
+        <div class="room-icon">
+          <i class="fas fa-gamepad"></i>
         </div>
-        <div class="meta">
-          <div id="roomLabel">Room: —</div>
-          <div id="status" class="muted small">Status: idle</div>
+        <div class="room-details">
+          <h2>GAME ROOM</h2>
+          <div class="room-id" id="roomLabel">—</div>
         </div>
       </div>
-
-      <div class="board-wrap">
-        <canvas id="lineCanvas"></canvas>
-        <div id="board" class="board"></div>
-      </div>
-
-      <div class="info-row">
-        <div>
-          <span style="color: #64748b;">Player:</span> 
-          <strong id="meLabel">—</strong>
+      
+      <div class="players-info">
+        <div class="player-badge x" id="playerX">
+          <div class="player-symbol x">X</div>
+          <div class="player-status" id="playerXStatus">Waiting...</div>
         </div>
-        <div>
-          <span style="color: #64748b;">You are:</span> 
-          <strong id="symbolLabel">—</strong>
+        <div class="player-badge o" id="playerO">
+          <div class="player-symbol o">O</div>
+          <div class="player-status" id="playerOStatus">Waiting...</div>
         </div>
-        <div>
-          <span style="color: #64748b;">Turn:</span> 
-          <strong id="turnLabel">—</strong>
-        </div>
-        <div id="msg" class="muted small"></div>
       </div>
     </div>
-  </main>
 
-  <script src="/script.js"></script>
+    <div class="game-status" id="gameStatus">Waiting for players...</div>
+    
+    <div class="countdown" id="countdown" style="display: none;">5</div>
+    
+    <div class="board-container">
+      <div id="board" class="board"></div>
+    </div>
+    
+    <button id="resetBtn" class="reset-btn" style="display: none;">
+      <i class="fas fa-redo"></i> PLAY AGAIN
+    </button>
+    
+    <div class="game-stats">
+      <div class="stat x">
+        <div class="stat-value" id="scoreX">0</div>
+        <div class="stat-label">X WINS</div>
+      </div>
+      <div class="stat">
+        <div class="stat-value" id="scoreDraw">0</div>
+        <div class="stat-label">DRAWS</div>
+      </div>
+      <div class="stat o">
+        <div class="stat-value" id="scoreO">0</div>
+        <div class="stat-label">O WINS</div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const WS_URL = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws';
+    
+    // DOM Elements
+    const connectingOverlay = document.getElementById('connectingOverlay');
+    const connectingDetails = document.getElementById('connectingDetails');
+    const gameContainer = document.getElementById('gameContainer');
+    const roomLabel = document.getElementById('roomLabel');
+    const gameStatus = document.getElementById('gameStatus');
+    const countdown = document.getElementById('countdown');
+    const resetBtn = document.getElementById('resetBtn');
+    const boardEl = document.getElementById('board');
+    const playerXStatus = document.getElementById('playerXStatus');
+    const playerOStatus = document.getElementById('playerOStatus');
+    const playerXBadge = document.getElementById('playerX');
+    const playerOBadge = document.getElementById('playerO');
+    const scoreX = document.getElementById('scoreX');
+    const scoreO = document.getElementById('scoreO');
+    const scoreDraw = document.getElementById('scoreDraw');
+
+    // Game state
+    let ws = null;
+    let roomId = null;
+    let myId = null;
+    let mySymbol = null;
+    let board = Array(9).fill(null);
+    let turn = 'X';
+    let status = 'waiting';
+    let scores = { X: 0, O: 0, draw: 0 };
+    let autoRestartTimer = null;
+
+    // Get room ID from URL
+    function getRoomIdFromURL() {
+      const urlParams = new URLSearchParams(location.search);
+      return urlParams.get('room');
+    }
+
+    // Connect to WebSocket and auto-join
+    function connectAndJoin() {
+      roomId = getRoomIdFromURL();
+      
+      if (!roomId) {
+        connectingDetails.textContent = 'No room ID found in URL';
+        setTimeout(() => {
+          window.location.href = '/';
+        }, 2000);
+        return;
+      }
+      
+      roomLabel.textContent = roomId;
+      connectingDetails.textContent = `Joining room: ${roomId}`;
+      
+      ws = new WebSocket(WS_URL);
+      
+      ws.onopen = () => {
+        connectingDetails.textContent = 'Connected! Joining game...';
+        // Join without name - server will assign a random name
+        ws.send(JSON.stringify({ 
+          type: 'join', 
+          roomId: roomId,
+          name: `Player${Math.floor(Math.random() * 1000)}`
+        }));
+      };
+      
+      ws.onmessage = (event) => {
+        let message;
+        try {
+          message = JSON.parse(event.data);
+        } catch (e) {
+          console.error('Failed to parse message:', e);
+          return;
+        }
+        handleMessage(message);
+      };
+      
+      ws.onclose = () => {
+        gameStatus.textContent = 'Disconnected from server';
+        gameStatus.className = 'game-status finished';
+        showConnectingOverlay('Disconnected. Reconnecting...');
+        setTimeout(() => {
+          if (roomId) {
+            connectAndJoin();
+          }
+        }, 3000);
+      };
+      
+      ws.onerror = (error) => {
+        console.error('WebSocket error:', error);
+        connectingDetails.textContent = 'Connection error. Retrying...';
+      };
+    }
+
+    // Handle incoming messages
+    function handleMessage(msg) {
+      switch (msg.type) {
+        case 'joined':
+          myId = msg.playerId;
+          mySymbol = msg.symbol;
+          board = msg.board || board;
+          turn = msg.turn || turn;
+          status = msg.status || 'waiting';
+          
+          hideConnectingOverlay();
+          updateUI();
+          updateGameStatus();
+          updatePlayerStatus(msg.players || []);
+          break;
+          
+        case 'player-joined':
+          updatePlayerStatus(msg.players || []);
+          break;
+          
+        case 'player-left':
+          updatePlayerStatus(msg.players || []);
+          break;
+          
+        case 'update':
+          board = msg.board || board;
+          turn = msg.turn || turn;
+          status = msg.status || 'waiting';
+          
+          renderBoard();
+          updateGameStatus();
+          
+          if (msg.winner) {
+            handleGameEnd(msg.winner, msg.winLine);
+          }
+          break;
+          
+        case 'error':
+          console.error('Server error:', msg.message);
+          gameStatus.textContent = msg.message;
+          break;
+      }
+    }
+
+    // Update player status display
+    function updatePlayerStatus(players) {
+      const playerX = players.find(p => p.symbol === 'X');
+      const playerO = players.find(p => p.symbol === 'O');
+      
+      playerXStatus.textContent = playerX ? playerX.name : 'Waiting...';
+      playerOStatus.textContent = playerO ? playerO.name : 'Waiting...';
+      
+      playerXBadge.style.opacity = playerX ? '1' : '0.5';
+      playerOBadge.style.opacity = playerO ? '1' : '0.5';
+    }
+
+    // Render game board
+    function renderBoard() {
+      boardEl.innerHTML = '';
+      
+      for (let i = 0; i < 9; i++) {
+        const cell = document.createElement('div');
+        cell.className = 'cell';
+        cell.dataset.index = i;
+        
+        if (board[i]) {
+          cell.textContent = board[i];
+          cell.classList.add(board[i].toLowerCase());
+        }
+        
+        cell.onclick = () => makeMove(i);
+        boardEl.appendChild(cell);
+      }
+    }
+
+    // Make a move
+    function makeMove(index) {
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      if (status !== 'playing') return;
+      if (board[index]) return;
+      if (turn !== mySymbol) return;
+      
+      ws.send(JSON.stringify({ type: 'move', index }));
+    }
+
+    // Handle game end
+    function handleGameEnd(winner, winLine) {
+      // Update scores
+      if (winner === 'X') {
+        scores.X++;
+        scoreX.textContent = scores.X;
+      } else if (winner === 'O') {
+        scores.O++;
+        scoreO.textContent = scores.O;
+      } else {
+        scores.draw++;
+        scoreDraw.textContent = scores.draw;
+      }
+      
+      // Highlight winning line
+      if (winLine) {
+        winLine.forEach(i => {
+          const cell = boardEl.querySelector(`.cell[data-index="${i}"]`);
+          if (cell) cell.classList.add('win');
+        });
+      }
+      
+      // Start auto-restart countdown
+      if (autoRestartTimer) clearInterval(autoRestartTimer);
+      
+      let seconds = 5;
+      countdown.textContent = seconds;
+      countdown.style.display = 'block';
+      resetBtn.style.display = 'block';
+      
+      autoRestartTimer = setInterval(() => {
+        seconds--;
+        countdown.textContent = seconds;
+        
+        if (seconds <= 0) {
+          clearInterval(autoRestartTimer);
+          resetGame();
+        }
+      }, 1000);
+    }
+
+    // Reset game
+    function resetGame() {
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      
+      countdown.style.display = 'none';
+      resetBtn.style.display = 'none';
+      ws.send(JSON.stringify({ type: 'reset' }));
+    }
+
+    // Update game status display
+    function updateGameStatus() {
+      gameStatus.className = `game-status ${status}`;
+      
+      switch (status) {
+        case 'waiting':
+          gameStatus.textContent = 'Waiting for opponent...';
+          break;
+        case 'playing':
+          if (turn === mySymbol) {
+            gameStatus.textContent = '✅ Your turn!';
+          } else {
+            gameStatus.textContent = '⏳ Opponent\'s turn...';
+          }
+          break;
+        case 'finished':
+          break;
+      }
+    }
+
+    // Show/hide connecting overlay
+    function showConnectingOverlay(text) {
+      connectingOverlay.style.display = 'flex';
+      if (text) connectingDetails.textContent = text;
+    }
+    
+    function hideConnectingOverlay() {
+      connectingOverlay.style.display = 'none';
+      gameContainer.style.display = 'block';
+    }
+
+    // Update UI
+    function updateUI() {
+      renderBoard();
+      updateGameStatus();
+    }
+
+    // Reset button handler
+    resetBtn.onclick = resetGame;
+
+    // Initialize
+    document.addEventListener('DOMContentLoaded', () => {
+      connectAndJoin();
+    });
+  </script>
 </body>
 </html>
