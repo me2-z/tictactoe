@@ -43,7 +43,7 @@ A simple yet professional **multiplayer Tic Tac Toe game** built with **Node.js*
 ### 1️⃣ Clone the Repository
 
 ```bash
-git clone https://github.com/your-username/tictactoe-game.git
+git clone https://github.com/me2-z/tictactoe.git
 cd tictactoe-game
 ```
 
